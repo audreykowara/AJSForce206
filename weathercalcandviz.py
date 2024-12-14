@@ -1,5 +1,6 @@
 import sqlite3
 import csv
+import matplotlib.pyplot as plt
 
 # Function to calculate the average temperature and average windspeed of each city
 def calculate_average_weather():
@@ -42,16 +43,60 @@ def calculate_average_weather():
     except Exception as e:
         print(f"An error occurred: {e}")
 
-def main():
-    """Main function to handle the program logic."""
-    # Example logic; replace with your actual logic
-    # This is a placeholder for your main function logic.
+
+#Function to visualize data
+def visualize_data_from_csv(csv_file):
+    "Create a dual -axis chart for average temperature and wind speed"
+
+    cities = []
+    avg_temps = []
+    avg_wind_speeds = []
+
+    # Read the CSV file
     try:
-        # You would fetch and store weather data here
-        # For now, we'll call the calculate_average_weather function
-        calculate_average_weather()
+        with open(csv_file, 'r') as file:
+            reader = csv.reader(file)
+            next(reader)  # Skip the header row
+            for row in reader:
+                cities.append(row[0])  # First column: City name
+                avg_temps.append(float(row[1]))  # Second column: Avg Temperature
+                avg_wind_speeds.append(float(row[2]))  # Third column: Avg Wind Speed
+
+        # Create the visualization
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+
+        # Bar graph for average temperature
+        ax1.bar(cities, avg_temps, color='lightblue', alpha=0.7, label='Avg Temperature (°F)')
+        ax1.set_xlabel("City", fontsize=12)
+        ax1.set_ylabel("Avg Temperature (°F)", fontsize=12, color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+        ax1.set_xticks(range(len(cities)))
+        ax1.set_xticklabels(cities, rotation=45, ha='right', fontsize=10)
+
+        # Line plot for average wind speed on a secondary y-axis
+        ax2 = ax1.twinx()
+        ax2.plot(cities, avg_wind_speeds, color='green', marker='o', label='Avg Wind Speed (MPH)', linewidth=2)
+        ax2.set_ylabel("Avg Wind Speed (MPH)", fontsize=12, color='green')
+        ax2.tick_params(axis='y', labelcolor='green')
+
+        # Add legends for both axes
+        ax1.legend(loc="upper left", fontsize=10)
+        ax2.legend(loc="upper right", fontsize=10)
+
+        plt.title("Average Temperature and Wind Speed by City", fontsize=16)
+        plt.tight_layout()
+        plt.savefig("dual_axis_chart.png")
+        plt.show()
+
+    except FileNotFoundError:
+        print(f"Error: File '{csv_file}' not found.")
     except Exception as e:
-        print(f"An error occurred in the main function: {e}")
+        print(f"An error occurred: {e}")
+
 
 if __name__ == "__main__":
-    main()
+    # Path to the CSV file containing the data
+    csv_file = "city_weather_averages.csv"  # Replace with your CSV file name
+
+    # Visualize the data from the CSV file
+    visualize_data_from_csv(csv_file)
