@@ -1,7 +1,6 @@
 import requests
 import sqlite3
 import time
-import pandas as pd
 
 # WeatherAPI API Key and Base URL
 BASE_URL = "http://api.weatherapi.com/v1/forecast.json"
@@ -137,42 +136,6 @@ def verify_database():
 
     conn.close()
 
-#Function to calculate the average temperature and average windspeed of each cities
-def calculate_average_weather():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    query = '''
-        SELECT 
-            c.city_name,
-            ROUND(AVG(w.temperature), 2) AS avg_temperature,
-            ROUND(AVG(w.wind_speed), 2) AS avg_wind_speed
-        FROM 
-            weather w
-        INNER JOIN 
-            cities c ON w.city_id = c.city_id
-        GROUP BY 
-            c.city_name
-        ORDER BY 
-            c.city_name;
-    '''
-
-    cursor.execute(query)
-    results = cursor.fetchall()
-    conn.close()
-
-    # Write the results to a CSV file
-    output_file = "city_weather_averages.csv"
-    with open(output_file, "w") as file:
-        # Write the header
-        file.write("City Name,Avg Temperature (°F),Avg Wind Speed (MPH)\n")
-        for row in results:
-            city_name, avg_temp, avg_wind = row
-            # Write each row in CSV format
-            file.write(f"{city_name},{avg_temp},{avg_wind}\n")
-
-    print(f"City averages (temperature and wind speed) have been written to {output_file}.")
-
 def main():
     """Main function to fetch and store weather data."""
     setup_database()
@@ -212,8 +175,6 @@ def main():
     # Verify database after execution
     verify_database()
 
-    #Calculate average
-    calculate_average_weather()
 
 if __name__ == "__main__":
     main()
