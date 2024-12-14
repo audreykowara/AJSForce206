@@ -112,6 +112,8 @@ def store_weather_data(data, max_rows=25, current_total_rows=0):
 
     return rows_added
 
+#I wan
+
 def verify_database():
     """Verify database rows and check for duplicates."""
     conn = sqlite3.connect(DB_NAME)
