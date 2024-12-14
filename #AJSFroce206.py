@@ -161,19 +161,17 @@ def calculate_average_weather():
     results = cursor.fetchall()
     conn.close()
 
-    #Write the results to a text file
-    output_file = "city_weather_averages.txt"
+    # Write the results to a CSV file
+    output_file = "city_weather_averages.csv"
     with open(output_file, "w") as file:
-        file.write(f"{'City Name':<20} {'Avg Temperature (°F)':<25} {'Avg Wind Speed (MPH)':<20}\n")
-        file.write("=" * 65 + "\n")
+        # Write the header
+        file.write("City Name,Avg Temperature (°F),Avg Wind Speed (MPH)\n")
         for row in results:
             city_name, avg_temp, avg_wind = row
-            file.write(f"{city_name:<20} {avg_temp:<25.2f} {avg_wind:<20.2f}\n")
+            # Write each row in CSV format
+            file.write(f"{city_name},{avg_temp},{avg_wind}\n")
 
     print(f"City averages (temperature and wind speed) have been written to {output_file}.")
-
-
-
 
 def main():
     """Main function to fetch and store weather data."""
