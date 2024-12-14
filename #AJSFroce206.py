@@ -142,7 +142,7 @@ def main():
     DAYS_PER_RUN = 7  # Fetch up to 7 days of data per city
     START_DAY = 0  # Adjust this for each run (e.g., 0 for 1st run, 7 for 2nd run, and so on)
     CITIES = ["Chicago", "Ann Arbor", "Upper Peninsula", "New Orleans", "New York", "Boston", "Los Angeles", 
-              "San Francisco", "San Diego", "Las Vegas", "Houston", "Miami", "Orlando", "Utah", "Aspen"]  # Add more cities if needed
+              "San Francisco", "San Diego", "Las Vegas", "Houston", "Miami", "Orlando", "Utah", "Aspen", "Hawaii"]  # Add more cities if needed
     MAX_ROWS = 25  # Limit rows to 25 per run
 
     total_rows = 0  # Track rows added in this run
