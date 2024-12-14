@@ -1,17 +1,17 @@
-#AJSFroce206
-
 import requests
 import sqlite3
 import time
+import datetime
 
-#AccuWeather API Key and Base URL
-BASE_URL = "http://dataservice.accuweather.com"
-API_KEY = "oJGUem8EoAghqOIxrx5QctTjCMnPivOV"
+# WeatherAPI API Key and Base URL
+BASE_URL = "http://api.weatherapi.com/v1/forecast.json"
+API_KEY = "8a5c7cf8930644dab7414532241412"
 
-#Database setup
+# Database setup
 DB_NAME = "AJSChicago_data.db"
 
 def setup_database():
+    """Set up the SQLite database with required tables."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -22,6 +22,7 @@ def setup_database():
             city_name TEXT UNIQUE
         )
     ''')
+
     # Create weather table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS weather (
@@ -32,102 +33,148 @@ def setup_database():
             wind_speed REAL,
             humidity INTEGER,
             date TEXT,
-            FOREIGN KEY (city_id) REFERENCES cities (city_id)
+            FOREIGN KEY (city_id) REFERENCES cities (city_id),
+            UNIQUE(city_id, date)  -- Prevent duplicate city/date rows
         )
     ''')
+
     conn.commit()
     conn.close()
 
-#Function to fetch weather data
-def fetch_weather_data(API_KEY, CITY_NAME, total_days):
-     # Fetch city ID
-    location_url = f"{BASE_URL}/locations/v1/cities/search"
-    params = {"apikey": API_KEY, "q": CITY_NAME}
-    response = requests.get(location_url, params=params).json()
-    city_id = response[0]['Key']  # Extract city ID
+def fetch_weather_data(api_key, city_name, start_day=0, days_per_run=7):
+    """Fetch weather data starting from a specific day."""
+    params = {
+        "key": api_key,
+        "q": city_name,
+        "days": days_per_run,
+    }
 
-    # Initialize variables
+    # Fetch data
+    try:
+        response = requests.get(BASE_URL, params=params)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx, 5xx)
+        data = response.json()
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Error fetching data from WeatherAPI: {e}")
+    
+    # Parse the data for required fields
+    if "forecast" not in data or "forecastday" not in data["forecast"]:
+        raise ValueError(f"Invalid response format: {data}")
+
+    forecast_days = data["forecast"]["forecastday"]
     collected_data = []
-    forecast_url = f"{BASE_URL}/forecasts/v1/daily/5day/{city_id}"  # AccuWeather supports 5-day chunks
-    forecast_params = {"apikey": API_KEY}
-    days_fetched = 0
 
-    # Loop to fetch data in chunks of 5 days until we meet the required number of days
-    while days_fetched < total_days:
-        # Fetch 5-day forecast data
-        forecast_response = requests.get(forecast_url, params=forecast_params).json()
-        daily_forecasts = forecast_response['DailyForecasts']
+    for forecast in forecast_days:
+        weather_entry = {
+            "city_name": city_name,
+            "temperature": forecast["day"]["maxtemp_f"],  # Max temperature in Fahrenheit
+            "condition": forecast["day"]["condition"]["text"],  # Weather condition
+            "wind_speed": forecast["day"]["maxwind_mph"],  # Max wind speed in MPH
+            "humidity": forecast["day"]["avghumidity"],  # Average humidity
+            "date": forecast["date"]  # Date of forecast
+        }
+        collected_data.append(weather_entry)
 
-        # Parse the data for required fields
-        for forecast in daily_forecasts:
-            if days_fetched >= total_days:  # Stop once we reach the required total_days
-                break
-            weather_entry = {
-                "city_name": CITY_NAME,
-                "temperature": forecast['Temperature']['Maximum']['Value'],
-                "weather_condition": forecast['Day']['IconPhrase'],
-                "wind_speed": forecast['Day']['Wind']['Speed']['Value'],
-                "humidity": forecast['Day'].get('RainProbability', None),
-                "date": forecast['Date']
-            }
-            collected_data.append(weather_entry)
-            days_fetched += 1
+    return collected_data
 
-    return collected_data  # Return the parsed data
-
-#Function to store weather data in the database
-def store_weather_data(data):
+def store_weather_data(data, max_rows=25, current_total_rows=0):
+    """Store weather data in the SQLite database with row limit enforcement."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
+    rows_added = 0  # Track rows added for this run
     for entry in data:
-        cursor.execute("INSERT OR IGNORE INTO cities (city_name) VALUES (?)", (entry['city_name'],))        #Insert the city into 'cities' table, avoiding duplicates
-        city_id = cursor.execute("SELECT city_id FROM cities WHERE city_name = ?", (entry['city_name'],)).fetchone()[0]     #Retrieve the city_id for the inserted or existing city
+        if current_total_rows + rows_added >= max_rows:
+            break  # Stop if adding another row exceeds the limit
 
-        # Insert the weather data into the `weather` table
-        cursor.execute('''
-            INSERT INTO weather (city_id, temperature, condition, wind_speed, humidity, date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            city_id,
-            entry['temperature'],         # Maximum temperature (°F)
-            entry['weather_condition'],   # Weather condition (e.g., sunny, snowy)
-            entry['wind_speed'],          # Wind speed
-            entry['humidity'],            # Humidity (or rain probability)
-            entry['date']                 # Date of forecast
-        ))
+        # Insert city into 'cities' table, avoiding duplicates
+        cursor.execute("INSERT OR IGNORE INTO cities (city_name) VALUES (?)", (entry['city_name'],))
+        city_id = cursor.execute("SELECT city_id FROM cities WHERE city_name = ?", (entry['city_name'],)).fetchone()[0]
+
+        # Insert weather data if not already present
+        try:
+            cursor.execute('''
+                INSERT INTO weather (city_id, temperature, condition, wind_speed, humidity, date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                city_id,
+                entry['temperature'],
+                entry['condition'],
+                entry['wind_speed'],
+                entry['humidity'],
+                entry['date']
+            ))
+            rows_added += 1
+        except sqlite3.IntegrityError:
+            print(f"Skipping duplicate entry for city_id={city_id}, date={entry['date']}")
 
     conn.commit()
     conn.close()
 
+    return rows_added
 
+def verify_database():
+    """Verify database rows and check for duplicates."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # Total row count
+    total_rows = cursor.execute("SELECT COUNT(*) FROM weather").fetchone()[0]
+    print(f"Total rows in database: {total_rows}")
+
+    # Check for duplicates
+    duplicates = cursor.execute('''
+        SELECT city_id, date, COUNT(*)
+        FROM weather
+        GROUP BY city_id, date
+        HAVING COUNT(*) > 1
+    ''').fetchall()
+
+    if duplicates:
+        print(f"Found duplicates: {duplicates}")
+    else:
+        print("No duplicates found!")
+
+    conn.close()
+
+def main():
+    """Main function to fetch and store weather data."""
+    setup_database()
+    DAYS_PER_RUN = 7  # Fetch up to 7 days of data per city
+    START_DAY = 0  # Adjust this for each run (e.g., 0 for 1st run, 7 for 2nd run, and so on)
+    CITIES = ["Chicago", "Ann Arbor", "Upper Peninsula", "New Orleans", "New York", "Boston", "Los Angeles", 
+              "San Francisco", "San Diego", "Las Vegas", "Houston", "Miami", "Orlando", "Utah", "Aspen"]  # Add more cities if needed
+    MAX_ROWS = 25  # Limit rows to 25 per run
+
+    total_rows = 0  # Track rows added in this run
+
+    for city in CITIES:
+        if total_rows >= MAX_ROWS:
+            print(f"Reached the maximum of {MAX_ROWS} rows for this run. Stopping...")
+            break
+
+        try:
+            print(f"Fetching weather data for {city}, starting from day {START_DAY}...")
+            weather_data = fetch_weather_data(API_KEY, city, start_day=START_DAY, days_per_run=DAYS_PER_RUN)
+
+            # Limit rows fetched to avoid exceeding the limit
+            weather_data = weather_data[:MAX_ROWS - total_rows]  # Trim rows if necessary
+            print(f"Weather data for {city} successfully fetched!")
+
+            # Store weather data in the database
+            if weather_data:
+                rows_added = store_weather_data(weather_data, max_rows=MAX_ROWS, current_total_rows=total_rows)
+                total_rows += rows_added
+                print(f"Stored {rows_added} rows for {city}. Total rows this run: {total_rows}")
+        except Exception as e:
+            print(f"Couldn't fetch or store data for {city}. Error: {e}")
+            continue
+
+        # Pause to avoid API rate limits
+        time.sleep(1)
+
+    # Verify database after execution
+    verify_database()
 
 if __name__ == "__main__":
-    setup_database()
-    TOTAL_DAYS = 25  # Fetch forecast for 25 days
-    CITY_NAME = "Chicago"
-
-    # Fetch weather data
-    try:
-        print(f"Fetching weather data for {CITY_NAME}...")
-        weather_data = fetch_weather_data(API_KEY, CITY_NAME, TOTAL_DAYS)
-        print("Weather data successfully fetched!")
-    except Exception as e:
-        print("Couldn't fetch data.")
-        print(f"Error: {e}")
-        weather_data = None
-
-    # Store weather data in the database
-    if weather_data:
-        try:
-            print("Storing weather data in the database...")
-            store_weather_data(weather_data)
-            print("Weather data successfully stored in the database!")
-        except Exception as e:
-            print("Couldn't store data.")
-            print(f"Error: {e}")
-
-
-
-
-
+    main()
