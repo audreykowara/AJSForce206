@@ -6,11 +6,11 @@ import os
 # Google Places API key
 API_KEY = 'AIzaSyB--RDZw6LYLq0-23rngVX0cUt9idBObv4'
 
-# Database setup function
 def setup_db():
     conn = sqlite3.connect('AJSChicago_data.db')
     cursor = conn.cursor()
 
+    # create table called itinerary for possible places to visit in Chicago
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS Itinerary (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,30 +26,30 @@ def setup_db():
     conn.close()
 
 
-# Function to get the current pagination token
+# get the current pagination token
 def get_current_page_token():
-    if os.path.exists("page_token.txt"):
-        with open("page_token.txt", "r") as f:
+    if os.path.exists("page_token.txt"): # page_token stores the token from the previous API call
+        with open("page_token.txt", "r") as f: # checks for existence of page_token file
             return f.read().strip()
     return None
 
 
-# Function to save the pagination token
+# save the pagination token
 def save_page_token(page_token):
-    with open("page_token.txt", "w") as f:
+    with open("page_token.txt", "w") as f: # can continue from where last run during next execution
         f.write(page_token)
 
 
-# Function to get data from Google Places API
+# get data from Google Places API
 def get_google_places_data(api_key, location="Chicago", page_token=None):
     url = f"https://maps.googleapis.com/maps/api/place/textsearch/json?query=activities+in+{location}&key={api_key}"
 
     if page_token:
-        url += f"&pagetoken={page_token}"
+        url += f"&pagetoken={page_token}" # dynamically construct url for different search entries
 
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Raises HTTPError for bad responses
+        response.raise_for_status()  # raises HTTPError for bad responses
 
         data = response.json()
         return data
@@ -59,17 +59,15 @@ def get_google_places_data(api_key, location="Chicago", page_token=None):
         return None
 
 
-# Function to store data in the database
-def store_data_in_db(data):
+def store_data_in_db(data, remaining_entries):
     conn = sqlite3.connect('AJSChicago_data.db')
     cursor = conn.cursor()
     data_to_store = []
 
     entries_inserted = 0  # initialize counter
-    max_entries = 25
 
     for place in data.get('results', []):
-        if entries_inserted >= max_entries:  # Limit to 25 entries per run
+        if entries_inserted >= remaining_entries:  # stop if 25 limit reached
             break
 
         attraction = place['name']
@@ -78,7 +76,7 @@ def store_data_in_db(data):
         rating = place.get('rating', None)
         review_count = place.get('user_ratings_total', 0)
 
-        try:
+        try: # insert or ignore avoids duplicates
             cursor.execute('''
                 INSERT OR IGNORE INTO Itinerary (attraction, category, rating, review_count, location)
                 VALUES (?, ?, ?, ?, ?)
@@ -103,7 +101,6 @@ def store_data_in_db(data):
     return data_to_store
 
 
-# Main function to manage the process
 def main():
     setup_db()
     queries = [
@@ -117,53 +114,36 @@ def main():
     ]
 
     total_entries_inserted = 0
-    max_total_entries = 25 
+    max_total_entries = 25 # ensure each run has a max of 25 entries
     
     for query in queries:
         print(f"Fetching data for query: '{query}'")
         page_token = None
         
-        while True:
+        while total_entries_inserted < max_total_entries:  # continue until max of 25 entries
+            remaining_entries = max_total_entries - total_entries_inserted
             data = get_google_places_data(API_KEY, query, page_token)
             
             if data:
-                new_data = store_data_in_db(data)
+                new_data = store_data_in_db(data, remaining_entries)
+                total_entries_inserted += len(new_data) # increment data by # of new entries
+
+                if total_entries_inserted >= max_total_entries: # stop fetching after 25 have been inserted
+                    print("Max total entries reached. Stopping.")
+                    return
                 
-                # Check for the next page token
+                # check for the next page token
                 page_token = data.get('next_page_token')
                 if page_token:
                     print("Next page token found. Continuing to next page...")
-                    time.sleep(2)  # Google requires a short delay between paginated requests
+                    time.sleep(2)  # short delay between paginated requests
                 else:
-                    break
+                    break # no more pages --> cant get more entries in db 
             else:
                 print(f"Error retrieving data for query: '{query}'")
-                break
+                break # stop if there are errors
 
-
-
-    # location = "Chicago"
-    # page_token = get_current_page_token()
-
-    # # Fetch data from Google Places API
-    # data = get_google_places_data(API_KEY, location, page_token)
-
-    # if data:
-    #     # Store the fetched data in the database
-    #     new_data = store_data_in_db(data)
-
-    #     # Check for the next page token
-    #     next_page_token = data.get('next_page_token')
-    #     if next_page_token:
-    #         save_page_token(next_page_token)
-    #         print("Next page token saved. Run the script again to fetch the next batch.")
-    #     else:
-    #         print("No more pages available.")
-    #         if os.path.exists("page_token.txt"):
-    #             os.remove("page_token.txt")  # Clear the token file when done
-    # else:
-    #     print("Error retrieving data.")
-
+    print(f"Finished. Total entries inserted: {total_entries_inserted}")
 
 if __name__ == "__main__":
     main()
