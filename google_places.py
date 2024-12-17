@@ -1,7 +1,6 @@
 import requests
 import sqlite3
 import time
-import os
 
 # Google Places API key
 API_KEY = 'AIzaSyB--RDZw6LYLq0-23rngVX0cUt9idBObv4'
@@ -65,7 +64,7 @@ def store_data_in_db(data, remaining_entries):
             ''', (attraction, category, rating, review_count, location))
 
             # check if insertion ---> successful
-            if cursor.rowcount > 0:  # if row inserted
+            if cursor.rowcount > 0:  # if row was inserted
                 entries_inserted += 1
 
         except sqlite3.Error as e:
